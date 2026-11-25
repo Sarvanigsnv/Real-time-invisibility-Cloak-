@@ -10,7 +10,7 @@
 
   let stream = null, socket = null, sending = false, running = false, lastSent = 0;
   let backgroundReady = false, gestureReady = false, cloakActive = false;
-  let selectedEffect = 'water', soundEnabled = false, audioContext = null;
+let selectedEffect = null, soundEnabled = false, audioContext = null;
   let particles = [], animationFrame = 0, effectOrigin = null;
 
   const intervalMs = 140;
@@ -428,7 +428,7 @@
   // Separate sounds for each magical element
 
   function playMagicSound(active) {
-    if (!soundEnabled) return;
+    if (!soundEnabled || !selectedEffect) return;
 
     if (selectedEffect === 'water') {
 
@@ -543,56 +543,50 @@
 
   // ---------------- EFFECT SELECTION ----------------
 
-  function chooseEffect(effect) {
-    selectedEffect = effect;
+ function chooseEffect(effect) {
+  selectedEffect = effect;
 
-    document.querySelectorAll('.effect-card').forEach(card => {
-      const selected = card.dataset.effect === effect;
+  document.querySelectorAll('.effect-card').forEach(card => {
+    const selected = card.dataset.effect === effect;
 
-      card.classList.toggle('selected', selected);
+    card.classList.toggle('selected', selected);
+    card.setAttribute('aria-pressed', String(selected));
 
-      card.setAttribute('aria-pressed', String(selected));
+    card.querySelector('.selected-mark').textContent =
+      selected ? '✓ Selected' : 'Choose effect';
+  });
 
-      card.querySelector('.selected-mark').textContent =
-        selected ? '✓ Selected' : 'Choose effect';
-    });
+  $('heroSpeech').innerHTML =
+    effect === 'water'
+      ? 'A little splash<br>of magic! <span>♡</span>'
+      : effect === 'fire'
+        ? 'Ooh, a warm<br>little spark! <span>♡</span>'
+        : effect === 'stars'
+          ? 'Let the stars<br>do their thing! <span>♡</span>'
+          : 'Ready to make<br>some magic? <span>♡</span>';
 
-    $('heroSpeech').innerHTML =
-      effect === 'water'
-        ? 'A little splash<br>of magic! <span>♡</span>'
-        : effect === 'fire'
-          ? 'Ooh, a warm<br>little spark! <span>♡</span>'
-          : 'Let the stars<br>do their thing! <span>♡</span>';
-
-    if (soundEnabled) {
-      playTone(
-        effect === 'water' ? 740 :
-        effect === 'fire' ? 420 : 980,
-        .16,
-        'sine',
-        .025
-      );
-    }
+  if (soundEnabled && effect) {
+    playTone(
+      effect === 'water' ? 740 :
+      effect === 'fire' ? 420 : 980,
+      .16,
+      'sine',
+      .025
+    );
+  }
+}
+function onCloakChange(active) {
+  if (selectedEffect) {
+    spawnParticles();
+    playMagicSound(active);
   }
 
-  function onCloakChange(active) {
-    if (active) {
-      spawnParticles();
-      playMagicSound(true);
+  $('heroSpeech').innerHTML = active
+    ? 'You did it!<br>So magical! <span>♡</span>'
+    : 'And... welcome<br>back! <span>♡</span>';
 
-      $('heroSpeech').innerHTML =
-        'You did it!<br>So magical! <span>♡</span>';
-
-    } else {
-      spawnParticles();
-      playMagicSound(false);
-
-      $('heroSpeech').innerHTML =
-        'And... welcome<br>back! <span>♡</span>';
-    }
-
-    showGestureToast();
-  }
+  showGestureToast();
+}
 
   // ---------------- ANIMATION SYSTEM ----------------
 
@@ -607,6 +601,7 @@
   }
 
   function spawnParticles() {
+    if (!selectedEffect) return;
     resizeFx();
 
     const rect = stage.getBoundingClientRect();
@@ -836,7 +831,38 @@
       fx.clearRect(0, 0, rect.width, rect.height);
     }
   }
+function resetFrontendState() {
+  // Clear the visual effects.
+  cancelAnimationFrame(animationFrame);
+  animationFrame = 0;
+  particles = [];
+  effectOrigin = null;
 
+  const rect = stage.getBoundingClientRect();
+  fx.clearRect(0, 0, rect.width, rect.height);
+
+  // Reset the session state.
+  backgroundReady = false;
+  gestureReady = false;
+  cloakActive = false;
+
+  // Reset the effect selection.
+  chooseEffect(null);
+
+  // Reset the camera-stage appearance.
+  stageStatus.textContent = '✧ CLOAK IS RESTING';
+  stageStatus.classList.remove('on');
+
+  $('gestureToast').classList.remove('show');
+
+  // Reset the guide.
+  $('guideTip').textContent =
+    "Mimi's tip: Keep your camera still after capturing the background!";
+
+  setMessage('Fresh session started! Capture your empty background to begin again.');
+
+  updateSteps();
+}
   // ---------------- EVENT LISTENERS ----------------
 
   connectBtn.addEventListener('click', () => {
@@ -852,9 +878,18 @@
   });
 
 
-  resetBtn.addEventListener('click', () => {
-    sendCommand('reset');
-  });
+ resetBtn.addEventListener('click', () => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    setMessage('Please connect your camera before starting a fresh session.');
+    return;
+  }
+
+  // Reset the interface immediately.
+  resetFrontendState();
+
+  // Reset the actual computer-vision session on the server.
+  sendCommand('reset');
+});
 
   soundBtn.addEventListener('click', () => {
     setSound(!soundEnabled);
